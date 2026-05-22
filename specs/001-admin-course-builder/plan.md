@@ -105,9 +105,16 @@ frontend/src/
 │   │   ├── AdminGeneratePage.tsx
 │   │   └── AdminGrammarPage.tsx
 │   ├── LearnCoursesPage.tsx
-│   └── LearnLessonPage.tsx
+│   └── LearnLessonPage.tsx       # iterates blocks + exercises, delegates to renderers
 ├── components/
-│   └── exercises/
+│   ├── blocks/                   # Content block renderers (one per ContentBlock type)
+│   │   ├── BlockRenderer.tsx     # type→component map; single entry point
+│   │   ├── GrammarNote.tsx
+│   │   ├── VocabularyList.tsx
+│   │   ├── ConversationExample.tsx
+│   │   └── ReadingPassage.tsx
+│   └── exercises/                # Exercise renderers (one per Exercise type)
+│       ├── ExerciseRenderer.tsx  # type→component map; single entry point
 │       ├── MultipleChoice.tsx
 │       ├── FillInTheBlank.tsx
 │       └── ConversationReconstruction.tsx
@@ -119,3 +126,8 @@ frontend/src/
 **Structure Decision**: Web application (Option 2 adapted) — Go backend at repo root,
 React frontend in `frontend/`. Admin and learner sections share the same backend but
 admin routes are JWT-protected. This matches the existing project layout exactly.
+
+**Rendering Architecture Decision**: Data-driven block renderer (Decision 9, research.md).
+Claude generates structured data (ContentBlock + Exercise rows); React renders it via
+`BlockRenderer` and `ExerciseRenderer` type→component maps. No code generation, no SSR.
+Adding a new content type = one enum value + one new component file. See research.md §9.
