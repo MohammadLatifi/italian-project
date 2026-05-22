@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "italian-words": {
+      "type": "stdio",
+      "command": "/Users/mohammadlatifi/personal-projects/italian-project/mcp",
+      "args": []
+    }
+  }
+}
