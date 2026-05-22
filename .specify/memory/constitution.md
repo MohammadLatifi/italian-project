@@ -1,50 +1,112 @@
-# [PROJECT_NAME] Constitution
-<!-- Example: Spec Constitution, TaskFlow Constitution, etc. -->
+<!--
+SYNC IMPACT REPORT
+==================
+Version change: (new) → 1.0.0
+Modified principles: N/A (initial ratification)
+Added sections: Core Principles (I–V), Technology Stack, Development Workflow, Governance
+Removed sections: N/A
+Templates requiring updates:
+  ✅ .specify/templates/plan-template.md — Constitution Check gate references principles I–V
+  ✅ .specify/templates/spec-template.md — no structural changes required; principles are compatible
+  ✅ .specify/templates/tasks-template.md — no structural changes required; task phases align
+Deferred TODOs: none
+-->
+
+# Italian Project Constitution
 
 ## Core Principles
 
-### [PRINCIPLE_1_NAME]
-<!-- Example: I. Library-First -->
-[PRINCIPLE_1_DESCRIPTION]
-<!-- Example: Every feature starts as a standalone library; Libraries must be self-contained, independently testable, documented; Clear purpose required - no organizational-only libraries -->
+### I. Simplicity First
 
-### [PRINCIPLE_2_NAME]
-<!-- Example: II. CLI Interface -->
-[PRINCIPLE_2_DESCRIPTION]
-<!-- Example: Every library exposes functionality via CLI; Text in/out protocol: stdin/args → stdout, errors → stderr; Support JSON + human-readable formats -->
+Every feature MUST start at the simplest viable implementation.
+Abstractions are introduced only when duplication across three or more concrete cases
+justifies them. Premature generalization, unnecessary layers, and speculative design
+are prohibited. If a straight function call suffices, no interface is created.
 
-### [PRINCIPLE_3_NAME]
-<!-- Example: III. Test-First (NON-NEGOTIABLE) -->
-[PRINCIPLE_3_DESCRIPTION]
-<!-- Example: TDD mandatory: Tests written → User approved → Tests fail → Then implement; Red-Green-Refactor cycle strictly enforced -->
+**Rationale**: This is a personal learning tool maintained by one developer.
+Complexity compounds quickly without a team to manage it.
 
-### [PRINCIPLE_4_NAME]
-<!-- Example: IV. Integration Testing -->
-[PRINCIPLE_4_DESCRIPTION]
-<!-- Example: Focus areas requiring integration tests: New library contract tests, Contract changes, Inter-service communication, Shared schemas -->
+### II. MCP-Native AI Integration
 
-### [PRINCIPLE_5_NAME]
-<!-- Example: V. Observability, VI. Versioning & Breaking Changes, VII. Simplicity -->
-[PRINCIPLE_5_DESCRIPTION]
-<!-- Example: Text I/O ensures debuggability; Structured logging required; Or: MAJOR.MINOR.BUILD format; Or: Start simple, YAGNI principles -->
+The MCP server (`cmd/mcp/main.go`) is the ONLY sanctioned interface for AI-assistant
+interactions with the database. All bulk vocabulary and paragraph ingestion MUST go
+through MCP tools (`add_words`, `add_paragraphs`). Direct database writes from AI
+agents outside of MCP are prohibited.
 
-## [SECTION_2_NAME]
-<!-- Example: Additional Constraints, Security Requirements, Performance Standards, etc. -->
+**Rationale**: Keeps the AI integration surface area small, auditable, and versioned
+independently from the REST API.
 
-[SECTION_2_CONTENT]
-<!-- Example: Technology stack requirements, compliance standards, deployment policies, etc. -->
+### III. Persistent Data Integrity
 
-## [SECTION_3_NAME]
-<!-- Example: Development Workflow, Review Process, Quality Gates, etc. -->
+All application state MUST be stored in MySQL via GORM models. Soft-deletes (GORM's
+`DeletedAt`) MUST be preserved — hard deletes require explicit justification.
+Practice-tracking fields (`PracticeCount`, `HowManyFalse`, `LastPracticeFalse`) are
+authoritative learning metrics and MUST NOT be reset silently.
 
-[SECTION_3_CONTENT]
-<!-- Example: Code review requirements, testing gates, deployment approval process, etc. -->
+**Rationale**: Vocabulary and practice history are the core value of the application;
+data loss directly harms the learning workflow.
+
+### IV. Clean REST Contracts
+
+The Go/Fiber REST API MUST follow these rules:
+- JSON in, JSON out for all endpoints.
+- HTTP status codes MUST accurately reflect outcomes (201 Created, 404 Not Found, etc.).
+- Request binding errors MUST return 400 with a machine-readable `{"error": "..."}` body.
+- No business logic in route registration (`routes/`); logic lives in `handlers/`.
+
+**Rationale**: The React frontend and any future clients depend on a predictable API
+surface.
+
+### V. Learning-Focused Frontend
+
+The React/TypeScript frontend MUST prioritize the learner's workflow over engineering
+elegance. Pages MUST be independently navigable. Speech synthesis (`useSpeech` hook)
+MUST be available wherever Italian text is displayed. Feature additions to the frontend
+MUST not degrade page-load performance for existing vocabulary lists.
+
+**Rationale**: The frontend is the primary daily-use interface; slow or broken UX
+directly disrupts practice sessions.
+
+## Technology Stack
+
+| Layer | Choice | Version |
+|-------|--------|---------|
+| Backend language | Go | 1.25+ |
+| HTTP framework | Fiber | v3 |
+| ORM | GORM | v1.31+ |
+| Database | MySQL | 8+ |
+| MCP SDK | mark3labs/mcp-go | v0.49+ |
+| Frontend language | TypeScript | — |
+| Frontend framework | React + Vite | — |
+
+New dependencies MUST be justified against an existing dependency before being added.
+The dependency list MUST stay minimal.
+
+## Development Workflow
+
+- Environment configuration MUST use `.env` (never committed; see `.env-example`).
+- The MCP server binary (`mcp`) and the REST API (`server.go`) are built and run
+  independently.
+- Database schema changes MUST be handled via GORM auto-migrate; raw SQL migrations
+  require explicit justification.
+- All changes MUST be committed to the `master` branch on
+  `github.com/MohammadLatifi/italian-project` under the personal account
+  (`mohammadlatifi1993@gmail.com`).
 
 ## Governance
-<!-- Example: Constitution supersedes all other practices; Amendments require documentation, approval, migration plan -->
 
-[GOVERNANCE_RULES]
-<!-- Example: All PRs/reviews must verify compliance; Complexity must be justified; Use [GUIDANCE_FILE] for runtime development guidance -->
+This constitution supersedes all other written or implied development practices for
+this project. Amendments require:
 
-**Version**: [CONSTITUTION_VERSION] | **Ratified**: [RATIFICATION_DATE] | **Last Amended**: [LAST_AMENDED_DATE]
-<!-- Example: Version: 2.1.1 | Ratified: 2025-06-13 | Last Amended: 2025-07-16 -->
+1. Identifying which principle or section is affected.
+2. Updating this file with a new version number (semantic versioning).
+3. Updating the Sync Impact Report comment at the top of this file.
+4. Committing the change with message:
+   `docs: amend constitution to vX.Y.Z (<reason>)`
+
+Versioning policy:
+- **MAJOR**: Removal or incompatible redefinition of a principle.
+- **MINOR**: New principle or section added.
+- **PATCH**: Wording clarification, typo fix, non-semantic refinement.
+
+**Version**: 1.0.0 | **Ratified**: 2026-05-22 | **Last Amended**: 2026-05-22
