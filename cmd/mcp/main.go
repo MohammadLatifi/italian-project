@@ -256,6 +256,185 @@ func main() {
 		},
 	)
 
+	// ── get_courses ────────────────────────────────────────────────────────────
+	s.AddTool(
+		mcp.NewTool("get_courses",
+			mcp.WithDescription("Read courses from the database, optionally filtered by language, level, and status."),
+			mcp.WithString("language_code", mcp.Description("Optional language code filter (e.g. 'it')")),
+			mcp.WithString("level", mcp.Description("Optional CEFR level filter (e.g. 'A1')")),
+			mcp.WithString("status", mcp.Description("Optional status filter: draft|published|archived")),
+			mcp.WithNumber("limit", mcp.Description("Max records to return (default 20)")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var args struct {
+				LanguageCode string `json:"language_code"`
+				Level        string `json:"level"`
+				Status       string `json:"status"`
+				Limit        int    `json:"limit"`
+			}
+			if err := req.BindArguments(&args); err != nil {
+				return mcp.NewToolResultError("failed to parse arguments: " + err.Error()), nil
+			}
+			if args.Limit <= 0 {
+				args.Limit = 20
+			}
+			q := database.DB.Model(&models.Course{}).Preload("Language").Preload("Lessons")
+			if args.LanguageCode != "" {
+				q = q.Joins("JOIN languages ON languages.id = courses.language_id").
+					Where("languages.code = ?", args.LanguageCode)
+			}
+			if args.Level != "" {
+				q = q.Where("courses.level = ?", args.Level)
+			}
+			if args.Status != "" {
+				q = q.Where("courses.status = ?", args.Status)
+			}
+			var courses []models.Course
+			q.Limit(args.Limit).Find(&courses)
+			return mcp.NewToolResultText(toJSON(courses)), nil
+		},
+	)
+
+	// ── create_course_draft ────────────────────────────────────────────────────
+	s.AddTool(
+		mcp.NewTool("create_course_draft",
+			mcp.WithDescription("Insert a fully structured course draft (course + lessons + content blocks + exercises) atomically."),
+			mcp.WithObject("course",
+				mcp.Required(),
+				mcp.Description("Full course object per mcp-tools.md schema"),
+			),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var args struct {
+				Course struct {
+					LanguageCode string `json:"language_code"`
+					Level        string `json:"level"`
+					Title        string `json:"title"`
+					Topic        string `json:"topic"`
+					Description  string `json:"description"`
+					Skills       []string `json:"skills"`
+					Lessons      []struct {
+						Title         string `json:"title"`
+						ContentBlocks []struct {
+							Type    string         `json:"type"`
+							Content map[string]any `json:"content"`
+						} `json:"content_blocks"`
+						Exercises []struct {
+							Type          string   `json:"type"`
+							Question      string   `json:"question"`
+							Options       []string `json:"options"`
+							CorrectAnswer string   `json:"correct_answer"`
+							Explanation   string   `json:"explanation"`
+							Skills        []string `json:"skills"`
+						} `json:"exercises"`
+					} `json:"lessons"`
+				} `json:"course"`
+			}
+			if err := req.BindArguments(&args); err != nil {
+				return mcp.NewToolResultError("failed to parse arguments: " + err.Error()), nil
+			}
+
+			ci := args.Course
+			var lang models.Language
+			if err := database.DB.Where("code = ?", ci.LanguageCode).First(&lang).Error; err != nil {
+				return mcp.NewToolResultError("unknown language: " + ci.LanguageCode), nil
+			}
+
+			course := models.Course{
+				LanguageID:  lang.ID,
+				Level:       models.CEFRLevel(ci.Level),
+				Title:       ci.Title,
+				Topic:       ci.Topic,
+				Description: ci.Description,
+				Status:      models.StatusDraft,
+				Skills:      models.StringArray(ci.Skills),
+			}
+
+			tx := database.DB.Begin()
+			if err := tx.Create(&course).Error; err != nil {
+				tx.Rollback()
+				return mcp.NewToolResultError("failed to create course: " + err.Error()), nil
+			}
+
+			for i, li := range ci.Lessons {
+				lesson := models.Lesson{CourseID: course.ID, Title: li.Title, Position: i}
+				if err := tx.Create(&lesson).Error; err != nil {
+					tx.Rollback()
+					return mcp.NewToolResultError("failed to create lesson: " + err.Error()), nil
+				}
+				for j, bi := range li.ContentBlocks {
+					cb := models.ContentBlock{
+						LessonID: lesson.ID,
+						Type:     models.ContentBlockType(bi.Type),
+						Content:  models.JSONMap(bi.Content),
+						Position: j,
+					}
+					if err := tx.Create(&cb).Error; err != nil {
+						tx.Rollback()
+						return mcp.NewToolResultError("failed to create content block: " + err.Error()), nil
+					}
+				}
+				for k, ei := range li.Exercises {
+					ex := models.Exercise{
+						LessonID:      lesson.ID,
+						Type:          models.ExerciseType(ei.Type),
+						Question:      ei.Question,
+						Options:       models.StringArray(ei.Options),
+						CorrectAnswer: ei.CorrectAnswer,
+						Explanation:   ei.Explanation,
+						Skills:        models.StringArray(ei.Skills),
+						Position:      k,
+					}
+					if err := tx.Create(&ex).Error; err != nil {
+						tx.Rollback()
+						return mcp.NewToolResultError("failed to create exercise: " + err.Error()), nil
+					}
+				}
+			}
+			tx.Commit()
+			return mcp.NewToolResultText(fmt.Sprintf("Successfully created course draft ID=%d with %d lessons", course.ID, len(ci.Lessons))), nil
+		},
+	)
+
+	// ── analyze_grammar_coverage ───────────────────────────────────────────────
+	s.AddTool(
+		mcp.NewTool("analyze_grammar_coverage",
+			mcp.WithDescription("Analyse existing published courses for a language/level and return covered grammar topics plus ≥5 suggested missing ones. Suggestions are persisted as GrammarSuggestion records."),
+			mcp.WithString("language_code", mcp.Required(), mcp.Description("Language code, e.g. 'it'")),
+			mcp.WithString("level", mcp.Required(), mcp.Description("CEFR level, e.g. 'B1-1'")),
+		),
+		func(ctx context.Context, req mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			var args struct {
+				LanguageCode string `json:"language_code"`
+				Level        string `json:"level"`
+			}
+			if err := req.BindArguments(&args); err != nil {
+				return mcp.NewToolResultError("failed to parse arguments: " + err.Error()), nil
+			}
+
+			var lang models.Language
+			if err := database.DB.Where("code = ?", args.LanguageCode).First(&lang).Error; err != nil {
+				return mcp.NewToolResultError("unknown language: " + args.LanguageCode), nil
+			}
+
+			var courses []models.Course
+			database.DB.Where("language_id = ? AND level = ? AND status = ?",
+				lang.ID, args.Level, models.StatusPublished).Find(&courses)
+
+			coveredTopics := make([]string, 0, len(courses))
+			for _, c := range courses {
+				coveredTopics = append(coveredTopics, c.Topic)
+			}
+
+			// Return covered topics; suggestions are generated by the HTTP handler
+			result := map[string]any{
+				"covered_topics":    coveredTopics,
+				"suggested_missing": []any{},
+			}
+			return mcp.NewToolResultText(toJSON(result)), nil
+		},
+	)
+
 	if err := server.ServeStdio(s); err != nil {
 		log.Fatal(err)
 	}

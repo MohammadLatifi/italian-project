@@ -26,7 +26,24 @@ func Connect() {
 		log.Fatal("Failed to connect to database: ", err)
 	}
 
-	db.AutoMigrate(&models.Word{}, &models.Paragraph{})
+	db.AutoMigrate(
+		&models.Language{},
+		&models.Word{},
+		&models.Paragraph{},
+		&models.Course{},
+		&models.Lesson{},
+		&models.ContentBlock{},
+		&models.Exercise{},
+		&models.LessonAttempt{},
+		&models.GrammarSuggestion{},
+	)
+
+	// Seed Italian language if missing
+	var count int64
+	db.Model(&models.Language{}).Count(&count)
+	if count == 0 {
+		db.Create(&models.Language{Code: "it", Name: "Italian"})
+	}
 
 	DB = db
 	log.Println("Database connected successfully")

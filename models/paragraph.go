@@ -53,6 +53,7 @@ func (a *IntArray) Scan(value any) error {
 
 type Paragraph struct {
 	gorm.Model
+	LanguageID     *uint           `gorm:"index"` // NULL = Italian (backward compat)
 	Paragraph      string          `gorm:"not null"`
 	TranslationEN  string          `gorm:"not null"`
 	RelatedWordIDs IntArray        `gorm:"type:json"`

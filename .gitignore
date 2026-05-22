@@ -17,6 +17,9 @@
 *.out
 coverage.html
 
+# Go vendor (if used)
+vendor/
+
 # IDE and editor files
 .idea/
 .vscode/
